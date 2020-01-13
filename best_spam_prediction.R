@@ -6,37 +6,25 @@ library(e1071)
 
 set.seed(1234)
 
+#####################################################################################
 # SPAM DATA
-df <- read.csv("/Users/d/Cours/SISE_M2/App_stat/projet/non_supervise/spambase.data", header=FALSE, sep=",")
-introduce(df)
-# derniere colonne en factor
-#df$V58 <- as.factor(df$V58)
-# sample de df afin de melanger le df
-subset <- sample(1:nrow(df), nrow(df), replace=FALSE)
-df <- df[subset, ]
-
-# Jeu de donnees train et test
-df_train <- df[1:1500, ]
-df_test <- df[1501:4601, ]
-# Données explicatives et variable a prédire d'entrainement
-X_train <- as.matrix(df_train[-ncol(df_train)])
-Y_train <- as.matrix(df_train[ncol(df_train)])
-# Donnees test
-X_test <- as.matrix(df_test[-ncol(df_test)])
-Y_test <- as.matrix(df_test[ncol(df_test)])
-
+#####################################################################################
+source("spam_data.R")
 
 #####################################################################################
 # GLMNET
 #####################################################################################
 # Regression lineraire penalisee (elasticnet)
-# pour glmnet seulement. lasso: alpha=1, ridge= alpha=0
+# lasso: alpha=1, ridge= alpha=0, elasticnet: 0<alpha<1
 # 1) fit <- cv.glmnet
 # 2) predict(fit, ...)
-glm_fit <- cv.glmnet(X_train, Y_train, family="binomial", type.measure="class", nfolds=3, 
-                     alpha=0.8, standardize=TRUE)
+glm_fit <- cv.glmnet(X_train, Y_train, family="binomial", type.measure="class", nfolds=10, 
+                     weights=rep(1, nrow(X_train)), alpha=0.8)
 # plot fit
 plot(glm_fit)
+glm_fit$lambda.min
+coef(glm_fit, s="lambda.min")
+
 # Calcul de prediction avec lambda = lambda.min, valeurs de lambda qui minimise l'erreur en CV
 glm_pred <- predict(glm_fit, newx=X_test, type="class", s=glm_fit$lambda.min)
 # Vérification
@@ -79,7 +67,7 @@ TE_rnn <- 1 - sum(diag(table(Y_test == 0, rnn_pred[,1] > 0.5))) / nrow(Y_test)
 # SVM
 #####################################################################################
 # Creation du modele, fit
-svm_fit <- svm(V58~. , data=df_train, kernel="linear", type="C-classification", cross=2)
+svm_fit <- svm(V58~. , data=df_train, kernel="linear", type="C-classification", cross=10)
 # Calcul des prediction
 svm_pred <- predict(svm_fit, X_test)
 # Taux d'erreur
