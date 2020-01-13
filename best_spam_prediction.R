@@ -1,4 +1,3 @@
-library(DataExplorer)
 library(glmnet)
 #library(InformationValue)
 library(neuralnet)
@@ -19,59 +18,93 @@ source("spam_data.R")
 # 1) fit <- cv.glmnet
 # 2) predict(fit, ...)
 glm_fit <- cv.glmnet(X_train, Y_train, family="binomial", type.measure="class", nfolds=10, 
-                     weights=rep(1, nrow(X_train)), alpha=0.8)
-# plot fit
+                     weights=rep(1, nrow(X_train)), alpha=0.99)
+# Plot fit
 plot(glm_fit)
+# Lambda min
 glm_fit$lambda.min
+# Coeff
 coef(glm_fit, s="lambda.min")
 
 # Calcul de prediction avec lambda = lambda.min, valeurs de lambda qui minimise l'erreur en CV
 glm_pred <- predict(glm_fit, newx=X_test, type="class", s=glm_fit$lambda.min)
-# Vérification
-table(glm_pred)
-table(Y_test)
+
+#Matrice de confusion
+table(glm_pred, Y_test)
 # Taux d'erreur
 TE_glm <- sum(Y_test != glm_pred)/nrow(Y_test)
 TE_glm
 
-
-
 #####################################################################################
 # NEURALNET
 #####################################################################################
-# RNN avec 1 couche cachée
 # Creation de la formula
 nom_var_exp <- colnames(X_train)
 var_cibl <- colnames(Y_train)
 var_exp <- paste(nom_var_exp ,collapse = "+")
-formule <- paste(var_cibl, "== '0' ~", var_exp)
+formule <- paste(var_cibl, "== '1' ~", var_exp)
 formule <- as.formula(formule)
 # On met sous forme de factor la variable a expliquer
 df_train_rnn <- df_train
 df_train_rnn$V58 <- as.factor(df_train_rnn$V58)
 
-# fitting RNN, act.fun pour fonction d'activation
-rnn_fit <- neuralnet(formula=formule, data=df_train_rnn, hidden=c(4), linear.output = FALSE,
-                     act.fct="logistic")
-plot(rnn_fit, file="test_rnn1")
-# Prediction
-rnn_pred <- predict(rnn_fit, X_test)
-# Matrice de confusion
-table(Y_test == 0, rnn_pred[,1] > 0.5)
-TE_rnn <- 1 - sum(diag(table(Y_test == 0, rnn_pred[,1] > 0.5))) / nrow(Y_test)
+# Choix du nombre de decoupage k pour la CV
+k <- 3
+TE_rnn_cv <- rep(1, k)
+# Cross Validation
+for (i in 1:k) {
+  # Sample data
+  index <- sample(1:nrow(df_train_rnn), (1-(1/k))*nrow(df_train_rnn))
+  cv_train <- df_train_rnn[index, ]
+  cv_test <- df_train_rnn[-index, ]
+  
+  # Fit
+  rnn_fit <- neuralnet(formula=formule, data=cv_train, linear.output = FALSE, rep=1,
+                       algorithm="slr", act.fct="tanh", hidden=c(2))
+  
+  # Prediction
+  rnn_pred <- predict(rnn_fit, cv_test)
+  # matrice de confusion
+  print(table(cv_test$V58 == "1", rnn_pred > 0.5))
+  # Taux d'erreur
+  TE_rnn_cv[i] <- 1 - sum(diag(table(cv_test$V58 == "1", rnn_pred > 0.5))) / nrow(cv_test)
+}
 
-# CV à faire à la main
+# Taux d'erreur moyen pour le modèle d'entrainement
+mean(TE_rnn_cv)
+
+# Prediction sur les vraies données test
+rnn_pred_test <- predict(rnn_fit, X_test)
+# Matrice de confusion
+table(rnn_pred_test > 0.5, Y_test == 1)
+# Taux d'erreur sur les données test
+TE_rnn_test <- 1 - sum(diag(table(Y_test == 1, rnn_pred_test > 0.5))) / nrow(Y_test)
+TE_rnn_test
+
+# Plot fit
+# plot(rnn_fit)
+# Plot prediction
+plot(rnn_pred_test)
 
 
 #####################################################################################
 # SVM
 #####################################################################################
 # Creation du modele, fit
-svm_fit <- svm(V58~. , data=df_train, kernel="linear", type="C-classification", cross=10)
+svm_fit <- svm(V58~. , data=df_train, kernel="polynomial", type="C-classification", cross=10,
+               cost=100, epsilon=0.1, tolerance=0.001, degree=3, coef0=15, gamma=0.001)
 # Calcul des prediction
 svm_pred <- predict(svm_fit, X_test)
 # Taux d'erreur
 TE_svm <- sum(Y_test != svm_pred)/nrow(Y_test)
 TE_svm
+# Plot prediction
+plot(svm_pred)
 
 
+#####################################################################################
+# Taux d'erreur resume
+#####################################################################################
+TE <- cbind(TE_glm, TE_rnn_test)
+TE <- cbind(TE, TE_svm)
+TE
